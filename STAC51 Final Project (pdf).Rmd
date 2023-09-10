@@ -1,0 +1,250 @@
+---
+title: "Final Project STAC51"
+author: "Alex Cheng, Zaamin Rattansi, Jacob Temple, & Jeffrey Wong"
+date: "4/10/2023"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = FALSE)
+
+library(ggplot2)
+library(corrplot)
+library(MASS)
+library(ResourceSelection)
+library(pROC)
+```
+
+
+# Introduction
+
+The purpose of this research is to study the direct and indirect relationships of several factors related to credit risk. This will be done through a thorough analysis of the variables that have an effect on the credit risk of an individual. Variables that are directly related and variables that have less importance were included to see a larger range of relationships possible and to really understand what what characteristics of a persons finacials have the greatest effect on their credit risk.
+
+## Background
+The data we have analyzed and studied is taken from the Beuth University of applied sciences Berlin. The data was taken to analyze the importance of different factors that affect credit risk. This data was taken in the 70's so it may be outdated, for exampple, one variable is the presence of a landline. The objective of the data collected is to build a model to predict a person's credit risk. Through the several variables collected, the model will be able to predict if someone has high or low credit risk.
+
+## Study Goal
+To analyze what variables cause an increase or decrease in credit risk to learn more about what is required to have low credit risk.
+
+## Data Preparation
+
+We split our data into 2 halves for cross validation. This is to prevent over-fitting of our final model.
+
+```{r}
+set.seed(123456)
+
+data = read.csv("Credit.csv")
+
+split <- rbinom(nrow(data), 1, 0.5)
+
+data_build <- data[split == 1, ]
+data_valid <- data[split == 0, ]
+```
+
+## Description and Visualization of Data
+
+```{r fig.allign="center", warning=FALSE, out.width="33%"}
+# Correlation plots
+data_sub <- data_build[, c("age", "duration", "amount")]
+data_cor <- cor(data_sub)
+
+corrplot(data_cor, type="lower", order="hclust", method="square")
+
+pairs.default(data_sub, main = "Correlation Plot Matrix for age, duration, and amount", gap = 0, pch = 20, cex = 1.5)
+
+# Bar plots
+ggplot(data_build, aes(reorder(status, status, mean))) +
+  geom_bar() +
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
+  labs(x = "Number of Debit Memos (Transactions)")
+
+# Histograms
+ggplot(data_build) +
+  geom_histogram(aes(age), bins = 12) +
+  geom_vline(xintercept=mean(data_build$age)) +
+  labs(title = "Distribution of Age (Years)")
+
+ggplot(data_build) +
+  geom_histogram(aes(amount), bins = 10) +
+  geom_vline(xintercept=mean(data_build$amount)) +
+  labs(title = "Distribution of Amount (Amount of Credit in Dollars)")
+
+ggplot(data_build) +
+  geom_histogram(aes(duration), bins = 10) +
+  geom_vline(xintercept=mean(data_build$duration)) +
+  labs(title = "Distribution of Duration (Duration of Credit in Months)")
+```
+
+
+# Model Building 
+
+## All Terms with Interaction
+
+Fit 1 regresses on all terms with interaction with the exception a selection of interactions with the `foreign_worker` variable due to Null values.
+
+```{r}
+terms1 = "(property + housing + number_credits + job + people_liable + telephone + duration + credit_history + purpose + amount + savings + employment_duration + installment_rate + personal_status_sex + other_debtors + present_residence + age + other_installment_plans + status)^2 + foreign_worker*(property + housing + number_credits + job + people_liable + telephone + duration + credit_history + purpose + amount + savings + employment_duration + installment_rate + personal_status_sex)"
+
+fit1 = glm(paste("credit_risk ~", terms1, sep = " "), family=binomial(link="logit"), data = data_build)
+
+sum1 <- summary(fit1)
+```
+
+This initial saturated fit has an AIC of `r sum1$aic` and residual deviance `r sum1$deviance`.
+
+## Stepwise Regression
+
+We completed a stepwise regression of Fit 1 to eliminate insignificant explanatory variables and increase the AIC.
+
+```{r eval=FALSE, include=FALSE}
+#Please don't run this chunk. It takes awhile.
+fit_simple <- glm(credit_risk ~ 1, family = "binomial", data=data_build)
+step = suppressWarnings(step(fit1, direction="both", scope=list(upper=fit1, lower=fit_simple)))
+```
+
+```{r}
+#terms2 = paste(attr(terms(step), "term.labels"), collapse = "+")
+terms2 = "property+housing+number_credits+job+people_liable+telephone+credit_history+purpose+amount+savings+employment_duration+installment_rate+personal_status_sex+other_debtors+present_residence+age+other_installment_plans+status+foreign_worker+property:number_credits+property:job+property:people_liable+property:telephone+property:credit_history+property:amount+property:installment_rate+property:personal_status_sex+property:other_installment_plans+property:status+housing:number_credits+housing:job+housing:credit_history+housing:installment_rate+number_credits:job+number_credits:people_liable+number_credits:purpose+number_credits:employment_duration+number_credits:installment_rate+number_credits:other_installment_plans+job:people_liable+job:purpose+job:amount+job:present_residence+job:age+people_liable:telephone+people_liable:credit_history+people_liable:amount+people_liable:present_residence+people_liable:age+people_liable:other_installment_plans+people_liable:status+telephone:credit_history+telephone:amount+telephone:savings+telephone:employment_duration+telephone:other_debtors+telephone:age+credit_history:installment_rate+credit_history:other_debtors+credit_history:present_residence+credit_history:other_installment_plans+purpose:savings+purpose:age+purpose:other_installment_plans+amount:savings+amount:employment_duration+amount:installment_rate+amount:personal_status_sex+amount:present_residence+amount:age+amount:other_installment_plans+savings:other_debtors+savings:present_residence+savings:age+savings:other_installment_plans+employment_duration:other_debtors+employment_duration:present_residence+employment_duration:other_installment_plans+employment_duration:status+installment_rate:personal_status_sex+installment_rate:other_debtors+installment_rate:present_residence+installment_rate:age+installment_rate:status+personal_status_sex:age+personal_status_sex:other_installment_plans+other_debtors:age+other_debtors:status+present_residence:age+present_residence:other_installment_plans+age:other_installment_plans+purpose:foreign_worker+people_liable:other_debtors+property:other_debtors+job:status+savings:personal_status_sex+telephone:other_installment_plans"
+```
+
+### Binomial Logistic
+
+Fit 2 is a binomial logistic regression on the terms that remained from the previous stepwise regression.
+
+```{r}
+fit2 = glm(paste("credit_risk ~", terms2, sep = " "), family = binomial(link="logit"), data=data_build)
+sum2 <- summary(fit2)
+```
+
+Fit 2 has an AIC of `r sum2$aic` and residual deviance `r sum2$deviance`, making it a better fit than the initial saturated fit with regard to the AIC.
+
+### Binomial Probit
+
+Fit 3 is a binomial probit regression of the terms that remained from the previous stepwise regression. 
+
+```{r}
+fit3 = glm(paste("credit_risk ~", terms2, sep = " "), family = binomial(link="probit"), data=data_build)
+sum3 <- summary(fit3)
+```
+
+Fit 3 has an AIC of `r sum3$aic` and residual deviance `r sum3$deviance`, making it a marginally better fit than the initial saturated fit and Fit 2 with regard to the AIC and residual deviance.
+
+## Significant Values Only ($\alpha \leq$ 0.05)
+
+We see that Fit 3, binomial probit, has a lower AIC and is therefore a better fit than Fit 2, binomial logistic. To attempt to further improve Fit 3, we remove the insignificant values from Fit 3 to get Fit 4.
+
+```{r}
+terms3 = "property + job + people_liable + amount + savings + employment_duration + personal_status_sex + other_installment_plans + status + property:job + property:people_liable + property:telephone + property:credit_history + property:amount + property:installment_rate + property:personal_status_sex + property:other_installment_plans + property:status + housing:number_credits + housing:job + housing:credit_history + housing:installment_rate + number_credits:job + number_credits:people_liable + number_credits:employment_duration + number_credits:installment_rate + number_credits:other_installment_plans + job:people_liable + job:purpose + job:amount + job:present_residence + job:age + people_liable:amount + people_liable:other_installment_plans + telephone:credit_history + telephone:amount + telephone:savings + telephone:employment_duration + telephone:other_debtors + telephone:age + credit_history:installment_rate + credit_history:other_debtors + credit_history:present_residence + credit_history:other_installment_plans + purpose:savings + purpose:age + purpose:other_installment_plans + amount:savings + amount:installment_rate + amount:present_residence + amount:age + amount:other_installment_plans + savings:other_debtors + savings:present_residence + savings:age + savings:other_installment_plans + employment_duration:other_debtors + employment_duration:present_residence + employment_duration:other_installment_plans + employment_duration:status + installment_rate:personal_status_sex + installment_rate:present_residence + installment_rate:age + installment_rate:status + personal_status_sex:age + personal_status_sex:other_installment_plans + other_debtors:status + present_residence:age + present_residence:other_installment_plans + age:other_installment_plans + people_liable:other_debtors + property:other_debtors + job:status + savings:personal_status_sex"
+
+fit4 = glm(paste("credit_risk ~", terms3, sep = " "), family = binomial(link="probit"), data=data_build)
+sum4 <- summary(fit4)
+```
+
+We see that the AIC in Fit 4, `r sum4$aic` is higher than that in Fit 3, which means Fit 3 is a better fit. This makes sense, since since we ran `stepwise(direction="both")` on Fit 1 to reduce the AIC.
+
+# Diagnoses
+
+## Predicted Probabilities
+
+```{r fig.allign="center", warning=FALSE, out.width="50%"}
+# Predicted probability curve over age
+ages <- c(-350:85)
+pred_age <- (exp(-23.44 + -0.09448*ages)/(1+exp(-23.44 + -0.09448*ages)))
+df_ages <- data.frame(ages, pred_age)
+
+ggplot(data_valid, aes(age, credit_risk)) +
+  geom_point() +
+  geom_line(data = df_ages, aes(ages, pred_age))
+  
+
+# Predicted probability curve over amount
+amounts <- c(0:47000)
+pred_amount = (exp(-23.44 + 0.0006314*amounts)/(1+exp(-23.44 + 0.0006314*amounts)))
+df_amounts <- data.frame(amounts, pred_amount)
+
+ggplot(data_valid, aes(amount, credit_risk)) +
+  geom_point() +
+  geom_line(data = df_amounts, aes(amounts, pred_amount))
+
+
+#ggplot(data_valid, aes(amount, pred_amount, color = status)) +
+  #geom_line() + 
+  #geom_point(aes(amount, credit_risk))
+```
+
+These are the predicted probability curves of age and amount. The age graph is decreasing, so as one gets older they are more likely to be at a higher risk borrower. However, we see that as the amount borrowed increases, one is at a lower credit risk.
+
+## Goodness of Fit
+
+```{r}
+hoslem.test(fit2$y, fitted(fit2))
+hoslem.test(fit3$y, fitted(fit3))
+```
+
+The p-value for the goodness of fit test of Fit 2 is greater than 0.05 so we fail to reject $H_0$, however, we reject $H_0$ for Fit 3. We conclude that Fit 2 fits the data well.
+
+## Sensitivity and Specificity
+
+Classification Tables:
+```{r}
+n <- dim(data_build)
+prop = sum(data_build$credit_risk == 1)/n
+
+y <- (data_build$credit_risk == 1)*1
+Predicted_2 <- as.numeric(fitted(fit2) > prop)
+xtabs(~y + Predicted_2)
+
+Predicted_3 <- as.numeric(fitted(fit3) > prop)
+xtabs(~y + Predicted_3)
+```
+Higher sensitivity and specificity indicate a more accurate model. For Fit 2, we have:
+
+Sensitivity = 139/(139 + 9) = `r 139/(139 + 9)`
+
+Specificity = 210/(147 + 210) = `r 210/(147 + 210)`
+
+We have similar results for Fit 3 as well. We have high sensitivity and average specificity, thus we can conclude we have a fairly good model.
+
+## ROC Curves
+
+```{r fig.allign="center", warning=FALSE, out.width="50%"}
+test_roc = roc(fit2$y~ fitted(fit2), plot = TRUE, print.auc = TRUE, main = "Fit 2")
+test_roc = roc(fit3$y~ fitted(fit3), plot = TRUE, print.auc = TRUE, main = "Fit 3")
+```
+The area under a ROC curve is the concordance index c, which estimates the probability that the predictions and the outcomes are concordant, which means that the observations with the larger y also has the larger $\hat{\pi}$.
+
+The larger the concordance index is, the better. The area under the curve for both Fit 2 and Fit 3 are very good, with value over 0.9, and hence the predictions are very close to the actual outcomes.
+
+## Residual Analysis
+
+For Fit 2, we have Studentized Deviance Residual `r fit2$deviance` with degrees of freedom `r fit2$df.residual`
+
+Below are the residuals plotted against the predicted values:
+
+```{r fig.allign="center", warning=FALSE, out.width="50%"}
+predicted <- fitted(fit2)
+
+plot(rstandard(fit2)~predicted, main = "Standardized Residual Plot")
+
+plot(fit2$residuals~predicted, main = "Residual Plot")
+
+
+ggplot(data_build, aes(x=rstandard(fit2))) + geom_histogram() + labs(title="Histogram of Standardized Residuals", x= 'Standardized Residuals', y= 'Frequency')
+
+ggplot(data_build, aes(x=fit2$residuals)) + geom_histogram() + labs(title="Histogram of Residuals", x= 'Residuals', y= 'Frequency')
+```
+
+The residuals are most frequently valued around 0, with a few outliers with values less than -10 which should be removed from the data.
+
+# Conclusion
+
+Our study resulted in few expected and unexpected findings. The variables we used allowed us to build an accurate and useful model to enable us to conclude which variables have the most and least effect on credit risk. The variable that stood out the most is `job`, the quality of the debtors job. This variable causes a huge dip in credit risk when the debtor has a high quality job where as credit risk was high when the debtor had a low quality job, this was as expected. A variable that ended up having little effect on credit risk was the number of credits variable. It was expected that this would have a significant effect on credit risk but the number of credit accounts an individual has, resulted in little change to their respective credit risk.
+
+## Final Model
+
+Our final model is the following logistic regression:
+
+```{r}
+sum2
+```
+
