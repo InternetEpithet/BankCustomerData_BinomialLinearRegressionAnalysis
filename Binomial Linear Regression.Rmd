@@ -36,7 +36,7 @@ fit1 = glm(paste("credit_risk ~", terms1, sep = " "), family=binomial(link="logi
 
 
 ```{r}
-#Please don't run this chunk. It takes awhile.
+#Please don't run this chunk. It takes awhile. Load data.RDATA instead. This is much faster.
 fit_simple <- glm(credit_risk ~ 1, family = "binomial", data=data_build)
 step = suppressWarnings(step(fit1, direction="both", scope=list(upper=fit1, lower=fit_simple)))
 ```
